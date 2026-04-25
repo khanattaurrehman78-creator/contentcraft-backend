@@ -1,115 +1,96 @@
-# ContentCraft AI — Backend Setup Guide
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
-## Step 1 — Supabase Database Setup
+const authRoutes = require('./routes/auth');
+const generateRoutes = require('./routes/generate');
+const adminRoutes = require('./routes/admin');
+const userRoutes = require('./routes/user');
 
-1. Go to: https://abwiarejyaadlissvedk.supabase.co
-2. Click **SQL Editor** (left sidebar)
-3. Copy everything from `database.sql`
-4. Paste and click **Run**
-5. You should see "Database setup complete!"
+const app = express();
+const PORT = process.env.PORT || 3000;
 
----
+// ─── SECURITY ─────────────────────────────────────────
+app.use(helmet());
 
-## Step 2 — Environment Variables
+app.use(cors({
+  origin: [
+    process.env.FRONTEND_URL,
+    'http://localhost:5500',
+    'http://127.0.0.1:5500'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-Create a `.env` file (copy from `.env.example`):
+// ─── RATE LIMITING ────────────────────────────────────
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
+  message: { error: 'Too many requests. Please try again later.' }
+});
 
-```
-SUPABASE_URL=https://abwiarejyaadlissvedk.supabase.co
-SUPABASE_PUBLISHABLE_KEY=your_new_publishable_key
-SUPABASE_SECRET_KEY=your_new_secret_key
-ANTHROPIC_API_KEY=your_anthropic_key
-JWT_SECRET=make_a_random_32_char_string_here
-PORT=3000
-NODE_ENV=production
-FRONTEND_URL=https://your-vercel-app.vercel.app
-FREE_CREDITS=10
-PRO_CREDITS=100
-PRO_PRICE=29
-```
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many auth attempts. Please try again later.' }
+});
 
----
+const generateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20,
+  message: { error: 'Generation limit reached. Upgrade to Pro for more.' }
+});
 
-## Step 3 — Deploy to Railway
+app.use(globalLimiter);
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-1. Go to railway.app
-2. Click **New Project** → **Deploy from GitHub**
-3. Connect your GitHub and push this folder
-4. In Railway project → **Variables** tab
-5. Add ALL variables from your .env file
-6. Railway will auto-deploy
+// ─── HEALTH CHECK ─────────────────────────────────────
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    product: 'ContentCraft AI',
+    version: '2.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
 
-Your backend URL will be: `https://contentcraft-backend.up.railway.app`
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', uptime: process.uptime() });
+});
 
----
+// ─── ROUTES ───────────────────────────────────────────
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/generate', generateLimiter, generateRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/user', userRoutes);
 
-## Step 4 — Create Admin Account
+// ─── ERROR HANDLER ────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('Error:', err.message);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error'
+  });
+});
 
-After deploy, call this API once:
+// ─── 404 ──────────────────────────────────────────────
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
 
-```bash
-curl -X POST https://your-railway-url/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "fname": "Admin",
-    "lname": "User", 
-    "email": "admin@contentcraft.ai",
-    "password": "your_strong_password",
-    "plan": "free"
-  }'
-```
+// ─── START ────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`
+  ╔═══════════════════════════════════╗
+  ║   ContentCraft AI Backend v2.0    ║
+  ║   Running on port ${PORT}            ║
+  ║   Environment: ${process.env.NODE_ENV || 'development'}        ║
+  ╚═══════════════════════════════════╝
+  `);
+});
 
-Then in Supabase SQL Editor, run:
-```sql
-UPDATE public.users
-SET role = 'admin', plan = 'admin', credits_limit = 999999
-WHERE email = 'admin@contentcraft.ai';
-```
-
----
-
-## API Endpoints
-
-### Auth
-- POST `/api/auth/register` — Create account
-- POST `/api/auth/login` — Login
-- GET `/api/auth/me` — Get current user
-- POST `/api/auth/logout` — Logout
-
-### Generate (requires Bearer token)
-- POST `/api/generate/article` — Write article (2 credits)
-- POST `/api/generate/meta` — Meta tags (1 credit)
-- POST `/api/generate/faq` — FAQ + Schema (2 credits)
-- POST `/api/generate/humanize` — Humanize (2 credits, Pro only)
-- POST `/api/generate/classify` — Keyword classifier (1 credit)
-- POST `/api/generate/gap` — Content gap (1 credit)
-- POST `/api/generate/cluster` — Topic cluster (2 credits)
-- POST `/api/generate/snippet` — Snippet optimizer (1 credit)
-
-### User (requires Bearer token)
-- GET `/api/user/profile` — Get profile
-- PUT `/api/user/profile` — Update profile
-- GET `/api/user/history` — Content history
-- GET `/api/user/stats` — Usage stats
-
-### Admin (requires Bearer token + admin role)
-- GET `/api/admin/users` — All users
-- POST `/api/admin/users` — Add user
-- PUT `/api/admin/users/:id/plan` — Change plan
-- DELETE `/api/admin/users/:id` — Delete user
-- POST `/api/admin/credits/grant` — Grant credits
-- GET `/api/admin/credits/grants` — Grant log
-- GET `/api/admin/analytics` — Analytics
-
----
-
-## Local Development
-
-```bash
-npm install
-cp .env.example .env
-# Fill in your .env values
-npm run dev
-```
-
-Server runs on: http://localhost:3000
+module.exports = app;
