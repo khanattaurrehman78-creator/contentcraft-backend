@@ -4,6 +4,16 @@ const supabase = require('../config/supabase');
 const { generateWithModel, getAvailableModels, DEFAULT_MODELS } = require('../config/ai');
 const { verifyToken, checkCredits } = require('../middleware/auth');
 
+// Optional auth middleware - passes through if no token
+const optionalAuth = (req, res, next) => {
+  const auth = req.headers.authorization;
+  if (!auth) {
+    req.user = { id: 'guest', role: 'user', plan: 'free', credits_used: 0, credits_limit: 999 };
+    return next();
+  }
+  verifyToken(req, res, next);
+};
+
 const buildSystem = (persona = {}) => {
   const niche = persona.niche || 'general';
   const audience = persona.audience || 'general readers';
@@ -24,13 +34,13 @@ const getModelKey = (req, requestedModel) => {
 };
 
 // GET /api/generate/models
-router.get('/models', verifyToken, (req, res) => {
+router.get('/models', optionalAuth, (req, res) => {
   const models = getAvailableModels(req.user.plan);
   res.json({ models, default: DEFAULT_MODELS[req.user.plan] });
 });
 
 // POST /api/generate/article
-router.post('/article', verifyToken, checkCredits(2), async (req, res) => {
+router.post('/article', optionalAuth, checkCredits(2), async (req, res) => {
   try {
     const { keyword, niche, language='English', length=2500, tone='Informative', lsi='', gaps='', schema='both', persona={}, model } = req.body;
     if (!keyword) return res.status(400).json({ error: 'Keyword required' });
@@ -51,7 +61,7 @@ ${schema!=='none'?'\n---SCHEMA---\n<script type="application/ld+json">[FAQPage+H
 });
 
 // POST /api/generate/meta
-router.post('/meta', verifyToken, checkCredits(1), async (req, res) => {
+router.post('/meta', optionalAuth, checkCredits(1), async (req, res) => {
   try {
     const { keyword, pageType='Blog Article', language='English', brand='', cta='Learn more', persona={}, model } = req.body;
     if (!keyword) return res.status(400).json({ error: 'Keyword required' });
@@ -64,7 +74,7 @@ router.post('/meta', verifyToken, checkCredits(1), async (req, res) => {
 });
 
 // POST /api/generate/faq
-router.post('/faq', verifyToken, checkCredits(2), async (req, res) => {
+router.post('/faq', optionalAuth, checkCredits(2), async (req, res) => {
   try {
     const { content, topic, count=8, language='English', persona={}, model } = req.body;
     if (!content && !topic) return res.status(400).json({ error: 'Content or topic required' });
@@ -77,7 +87,7 @@ router.post('/faq', verifyToken, checkCredits(2), async (req, res) => {
 });
 
 // POST /api/generate/humanize (Pro only)
-router.post('/humanize', verifyToken, async (req, res) => {
+router.post('/humanize', optionalAuth, async (req, res) => {
   try {
     if (req.user.plan==='free' && req.user.role!=='admin') return res.status(403).json({ error: 'Pro feature only. Please upgrade.' });
     const { text, style='Natural Blogger', persona={}, model } = req.body;
@@ -90,7 +100,7 @@ router.post('/humanize', verifyToken, async (req, res) => {
 });
 
 // POST /api/generate/classify
-router.post('/classify', verifyToken, checkCredits(1), async (req, res) => {
+router.post('/classify', optionalAuth, checkCredits(1), async (req, res) => {
   try {
     const { keywords, context='', persona={}, model } = req.body;
     if (!keywords) return res.status(400).json({ error: 'Keywords required' });
@@ -102,7 +112,7 @@ router.post('/classify', verifyToken, checkCredits(1), async (req, res) => {
 });
 
 // POST /api/generate/gap
-router.post('/gap', verifyToken, checkCredits(1), async (req, res) => {
+router.post('/gap', optionalAuth, checkCredits(1), async (req, res) => {
   try {
     const { myOutline, competitorOutline, persona={}, model } = req.body;
     if (!myOutline) return res.status(400).json({ error: 'Your outline required' });
@@ -114,7 +124,7 @@ router.post('/gap', verifyToken, checkCredits(1), async (req, res) => {
 });
 
 // POST /api/generate/cluster
-router.post('/cluster', verifyToken, checkCredits(2), async (req, res) => {
+router.post('/cluster', optionalAuth, checkCredits(2), async (req, res) => {
   try {
     const { niche, pillarKeyword, language='English', audience='', persona={}, model } = req.body;
     if (!niche) return res.status(400).json({ error: 'Niche required' });
@@ -126,7 +136,7 @@ router.post('/cluster', verifyToken, checkCredits(2), async (req, res) => {
 });
 
 // POST /api/generate/snippet
-router.post('/snippet', verifyToken, checkCredits(1), async (req, res) => {
+router.post('/snippet', optionalAuth, checkCredits(1), async (req, res) => {
   try {
     const { question, paragraph='', type='Paragraph', persona={}, model } = req.body;
     if (!question) return res.status(400).json({ error: 'Question required' });
@@ -138,7 +148,7 @@ router.post('/snippet', verifyToken, checkCredits(1), async (req, res) => {
 });
 
 // POST /api/generate/eeat
-router.post('/eeat', verifyToken, checkCredits(1), async (req, res) => {
+router.post('/eeat', optionalAuth, checkCredits(1), async (req, res) => {
   try {
     const { article, focus='All Signals', persona={}, model } = req.body;
     if (!article) return res.status(400).json({ error: 'Article required' });
